@@ -1,0 +1,29 @@
+[Unit]
+Description=WKD Publish Portal (internal)
+After=network.target
+RequiresMountsFor=/var/lib/wks-portal
+
+[Service]
+User=webkey
+Group=webkey
+WorkingDirectory=/opt/wks-portal
+
+Environment=WKS_PORTAL_BASEURL=https://wks-portal.internal.domain.cc
+Environment=WKS_PORTAL_ALLOWED_DOMAINS=domain.cc,domain2.cc
+Environment=WKS_PORTAL_FROM="PGP Key Publisher <no-reply@domain.cc>"
+Environment=WKS_PORTAL_TOKEN_TTL_MIN=60
+Environment=WKS_PORTAL_DB=/var/lib/wks-portal/portal.sqlite
+Environment=WKS_PORTAL_PENDING_DIR=/var/lib/wks-portal/pending
+Environment=WKS_PORTAL_SMTP_HOST=127.0.0.1
+Environment=WKS_PORTAL_SMTP_PORT=25
+Environment=WKS_PORTAL_REQUIRE_SSO=1
+Environment=TMPDIR=/tmp
+
+ExecStart=/usr/bin/gunicorn -b 127.0.0.1:9010 -w 2 --timeout 30 --worker-tmp-dir /run/wks-portal app:APP
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=wks-portal
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

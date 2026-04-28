@@ -1,0 +1,10 @@
+#!/bin/sh
+set -u
+LOGTAG="wks"
+OUT=$(/usr/bin/gpg-wks-server -v --receive --send --from key-submission@domain.cc --header X-WKS-Loop=wks.domain.cc 2>&1)
+RC=$?
+if [ $RC -ne 0 ]; then
+	logger -t "$LOGTAG" "WKS receive failed rc=$RC ($OUT)"
+	exit 0
+fi
+exit 0

@@ -1,0 +1,69 @@
+myhostname			= openpgpkey.domain.cc
+myorigin			= $myhostname
+relayhost			= domain.cc
+relay_domains			= domain.cc
+relay_recipient_maps		= hash:$config_directory/relay_recipients
+smtp_sasl_password_maps		= hash:$config_directory/sasl_passwd
+transport_maps			= hash:$config_directory/transport
+inet_interfaces			= 127.0.0.1, [::1], 192.168.0.0/24
+mydestination			= $myhostname, localhost.$mydomain, localhost
+mynetworks			= 127.0.0.0/8, 192.168.0.0/24
+smtpd_banner			= $myhostname ESMTP $mail_name
+alias_maps			= hash:/etc/aliases
+alias_database			= hash:/etc/aliases
+masquerade_domains		= domain.cc
+unknown_local_recipient_reject_code = 550
+message_size_limit		= 36700160
+maximal_queue_lifetime		= 7d
+delay_warning_time		= 0m
+compatibility_level		= 3
+mail_owner			= postfix
+setgid_group			= postdrop
+
+#
+# TLS
+#
+
+#
+# Server
+smtpd_use_tls			= yes
+smtpd_tls_cert_file		= /etc/pki/nginx/server.crt
+smtpd_tls_key_file		= /etc/pki/nginx/private/server.key
+smtpd_tls_security_level	= 
+smtpd_tls_loglevel		= 1
+smtpd_tls_received_header	= yes
+
+#
+# Client
+smtp_use_tls			= yes
+smtp_tls_loglevel		= 1
+smtp_tls_note_starttls_offer	= yes
+smtp_tls_session_cache_database = btree:/var/lib/postfix/smtp_scache
+smtp_sasl_auth_enable		= yes
+smtp_sasl_security_options	= noanonymous
+smtp_sasl_password_maps		= hash:$config_directory/sasl_passwd
+smtp_tls_CApath			= 
+smtp_tls_CAfile			= /etc/pki/tls/certs/ca-bundle.crt
+smtp_tls_security_level		= encrypt
+
+#
+# UCE
+#
+smtpd_relay_restrictions	= permit_mynetworks,
+				reject_unauth_destination
+
+#
+# dirs & paths
+queue_directory			= /var/spool/postfix
+command_directory		= /usr/sbin
+daemon_directory		= /usr/libexec/postfix
+data_directory			= /var/lib/postfix
+html_directory			= no
+meta_directory			= /etc/postfix
+manpage_directory		= /usr/share/man
+sample_directory		= /usr/share/doc/postfix/samples
+readme_directory		= /usr/share/doc/postfix/README_FILES
+shlib_directory			= /usr/lib64/postfix
+sendmail_path			= /usr/sbin/sendmail.postfix
+newaliases_path			= /usr/bin/newaliases.postfix
+mailq_path			= /usr/bin/mailq.postfix

@@ -1,0 +1,2 @@
+wks	unix	-	n	n	-	-	pipe
+	flags=Rq user=webkey argv=/usr/local/sbin/wks-receive

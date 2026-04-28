@@ -1,0 +1,11 @@
+[Unit]
+Description=OAuth2 Proxy
+After=network.target
+
+[Service]
+ExecStart=/opt/oauth2-proxy/oauth2-proxy --config /etc/oauth2-proxy/wks-portal.cfg
+Restart=always
+RestartSec=10min
+
+[Install]
+WantedBy=multi-user.target
