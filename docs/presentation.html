@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WKS Portal — Building a Secure OpenPGP Key Publishing Infrastructure</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/reveal.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/theme/moon.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" />
+  <style>
+    :root {
+      --accent: #4fc3f7;
+      --accent2: #a5d6a7;
+      --warn: #ffb74d;
+      --danger: #ef9a9a;
+    }
+    .reveal { font-size: 36px; }
+    .reveal h1 { font-size: 1.6em; color: var(--accent); text-transform: none; }
+    .reveal h2 { font-size: 1.3em; color: var(--accent); text-transform: none; }
+    .reveal h3 { font-size: 1.0em; color: var(--accent2); text-transform: none; }
+    .reveal pre { font-size: 0.55em; }
+    .reveal code { font-size: 0.85em; }
+    .reveal ul { list-style: none; padding: 0; }
+    .reveal ul li::before { content: "▸ "; color: var(--accent); }
+    .reveal .fragment.highlight-current-blue.current-fragment { color: var(--accent); }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-size: 0.5em;
+      vertical-align: middle;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    .tag-blue  { background: #1565c0; color: #fff; }
+    .tag-green { background: #2e7d32; color: #fff; }
+    .tag-orange{ background: #e65100; color: #fff; }
+    .tag-red   { background: #b71c1c; color: #fff; }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1em;
+      text-align: left;
+    }
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.8em;
+      text-align: left;
+    }
+    .box {
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 0.6em 0.8em;
+      background: rgba(255,255,255,0.05);
+      font-size: 0.7em;
+    }
+    .box h3 { margin: 0 0 0.4em; font-size: 1.1em; }
+    .box ul { margin: 0; }
+    .box ul li { font-size: 0.95em; }
+
+    .flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3em;
+      font-size: 0.65em;
+      flex-wrap: wrap;
+    }
+    .flow-step {
+      background: rgba(79,195,247,0.15);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 0.4em 0.7em;
+      text-align: center;
+    }
+    .flow-arrow { color: var(--accent); font-size: 1.4em; }
+
+    .big-number { font-size: 2.2em; color: var(--accent); font-weight: bold; }
+    .subtitle   { font-size: 0.55em; color: rgba(255,255,255,0.6); margin-top: 0.2em; }
+
+    table.neat { font-size: 0.6em; width: 100%; border-collapse: collapse; }
+    table.neat th { background: rgba(79,195,247,0.2); padding: 0.4em 0.8em; text-align: left; }
+    table.neat td { padding: 0.35em 0.8em; border-bottom: 1px solid rgba(255,255,255,0.1); }
+
+    .speaker-notes { display: none; }
+    .timing { font-size: 0.4em; color: rgba(255,255,255,0.35); float: right; margin-top: -1em; }
+  </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ─── TITLE ─────────────────────────────────────────────────────────────── -->
+<section data-background-gradient="radial-gradient(circle at 30% 40%, #0d2137 0%, #0a0f1a 70%)">
+  <h1>WKS Portal</h1>
+  <p style="font-size:0.75em; color: rgba(255,255,255,0.8);">
+    Building a Secure OpenPGP Key Publishing Infrastructure<br>
+    for the Enterprise
+  </p>
+  <hr style="border-color: rgba(79,195,247,0.3); margin: 1em auto; width: 60%;" />
+  <p style="font-size:0.5em; color: rgba(255,255,255,0.45);">
+    WKD · WKS · OAuth2 · GnuPG · Flask · nginx · Postfix
+  </p>
+  <aside class="notes">Welcome. Today I'll walk you through WKS Portal — a production-grade system we built to solve a real enterprise problem: how do you get your users' OpenPGP public keys published reliably and securely without a manual IT workflow? (~1 min)</aside>
+</section>
+
+<!-- ─── SPEAKER BIO ────────────────────────────────────────────────────────── -->
+<section>
+  <div style="display:grid; grid-template-columns: auto 1fr; gap: 1.5em; align-items:start; text-align:left;">
+    <div style="text-align:center;">
+      <img src="me.jpg" style="width:140px; height:140px; border-radius:50%; object-fit:cover; border:2px solid var(--accent); display:block;" />
+      <p style="font-size:0.45em; color:rgba(255,255,255,0.5); margin-top:0.5em;">xpd.se</p>
+    </div>
+    <div>
+      <h2 style="margin:0 0 0.1em;">Fredrik Söderblom</h2>
+      <p style="font-size:0.6em; color:var(--accent2); margin:0 0 0.8em;">Senior Security Advisor &amp; Founder · XPD AB</p>
+      <div style="font-size:0.6em; display:grid; grid-template-columns:1fr 1fr; gap:0.5em 1.5em;">
+        <ul style="margin:0;">
+          <li>40+ years in IT</li>
+          <li>1984 — Developer</li>
+          <li>1992 — first HP firewall in Northern Europe</li>
+          <li>Architect, auditor, advisor across defence, banking, nuclear, healthcare</li>
+          <li>Regular lecturer at universities &amp; conferences</li>
+        </ul>
+        <ul style="margin:0;">
+          <li>ISACA CISA · CISM · CDPSE</li>
+          <li>Mikrotik MTCINE · MTCRE · MTCWE</li>
+          <li>Swedish Security Protection Act (6+ yrs)</li>
+          <li>NIS / NIS2 · ISO 27001 · COBIT · ITIL</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">Quick intro — 40 years in the industry, started at HP in 1991, designed the first enterprise firewall in Northern Europe in 1992. Today I run XPD AB, focused on security architecture and auditing across critical infrastructure sectors. CISA, CISM, CDPSE certified.</aside>
+</section>
+
+<!-- ─── AGENDA ─────────────────────────────────────────────────────────────── -->
+<section>
+  <h2>Agenda <span class="timing">20 min</span></h2>
+  <div class="two-col" style="font-size:0.75em; margin-top:0.8em;">
+    <div>
+      <p style="color:var(--accent); margin-bottom:0.3em; font-size:0.9em;">Problem &amp; context</p>
+      <ul>
+        <li>The PGP key distribution problem</li>
+        <li>What WKD and WKS are</li>
+      </ul>
+      <p style="color:var(--accent); margin-top:0.8em; margin-bottom:0.3em; font-size:0.9em;">Architecture</p>
+      <ul>
+        <li>Three-tier design</li>
+        <li>Authentication model</li>
+        <li>Email backend</li>
+      </ul>
+    </div>
+    <div>
+      <p style="color:var(--accent); margin-bottom:0.3em; font-size:0.9em;">Implementation</p>
+      <ul>
+        <li>Flask portal walkthrough</li>
+        <li>The confirmation state machine</li>
+        <li>Secure key handling</li>
+      </ul>
+      <p style="color:var(--accent); margin-top:0.8em; margin-bottom:0.3em; font-size:0.9em;">Lessons learned</p>
+      <ul>
+        <li>Security trade-offs</li>
+        <li>Pragmatic engineering choices</li>
+        <li>What's next</li>
+      </ul>
+    </div>
+  </div>
+  <aside class="notes">Here's the plan. We'll spend about 5 minutes on the problem, 7 on the architecture and implementation, 5 on security design, and a few minutes on lessons learned.</aside>
+</section>
+
+<!-- ─── THE PROBLEM ────────────────────────────────────────────────────────── -->
+<section>
+  <section>
+    <h2>The Problem</h2>
+    <p style="font-size:0.7em; color:rgba(255,255,255,0.75); margin-bottom:1em;">
+      Your organisation uses OpenPGP for encrypted email. How do senders find recipients' public keys?
+    </p>
+    <div class="three-col">
+      <div class="box" style="border-color: var(--danger);">
+        <h3 style="color:var(--danger);">Key servers</h3>
+        <ul>
+          <li>No ownership validation</li>
+          <li>Poison attacks</li>
+          <li>GDPR problems</li>
+          <li>Unavailable sporadically</li>
+        </ul>
+      </div>
+      <div class="box" style="border-color: var(--warn);">
+        <h3 style="color:var(--warn);">Manual process</h3>
+        <ul>
+          <li>IT ticket per user</li>
+          <li>Error-prone</li>
+          <li>Slow (days lag)</li>
+          <li>No self-service</li>
+        </ul>
+      </div>
+      <div class="box" style="border-color: var(--accent2);">
+        <h3 style="color:var(--accent2);">WKD + WKS</h3>
+        <ul>
+          <li>DNS-rooted trust</li>
+          <li>Email ownership proof</li>
+          <li>HTTPS delivery</li>
+          <li>Self-service portal</li>
+        </ul>
+      </div>
+    </div>
+    <aside class="notes">The classic key server model has well-known problems. Key poisoning, no identity validation, GDPR headaches. The alternative — manual IT workflows — doesn't scale. WKD and WKS, standardised by the IETF and GnuPG project, solve this elegantly. (~2 min)</aside>
+  </section>
+
+  <section>
+    <h2>WKD and WKS Explained</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div class="box">
+        <h3>WKD — Web Key Directory</h3>
+        <ul>
+          <li>Keys served over HTTPS</li>
+          <li>URL derived from email address</li>
+          <li>Looked up by email client automatically</li>
+          <li style="margin-top:0.4em; color:rgba(255,255,255,0.6); font-size:0.9em;">
+            <code>https://openpgpkey.example.com/<br>
+            .well-known/openpgpkey/<br>
+            example.com/hu/&lt;hash&gt;</code>
+          </li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>WKS — Web Key Service</h3>
+        <ul>
+          <li>Protocol for key <em>submission</em></li>
+          <li>Challenge/response via email</li>
+          <li>Proves mailbox ownership</li>
+          <li style="margin-top:0.4em; color:rgba(255,255,255,0.6); font-size:0.9em;">
+            Send key → receive challenge<br>
+            → reply → key gets published
+          </li>
+        </ul>
+      </div>
+    </div>
+    <p style="font-size:0.55em; color:rgba(255,255,255,0.45); margin-top:0.8em;">
+      RFC&nbsp;4880 · draft-koch-openpgp-webkey-service · GnuPG gpg-wks-server
+    </p>
+    <aside class="notes">WKD is the read side — any email client that understands it can look up a key automatically. WKS is the write side — it's how keys get published, using email as a proof of ownership mechanism. GnuPG ships a reference server implementation. We built the enterprise wrapper around it. (~1.5 min)</aside>
+  </section>
+</section>
+
+<!-- ─── ARCHITECTURE ───────────────────────────────────────────────────────── -->
+<section>
+  <section>
+    <h2>Three-Tier Architecture</h2>
+    <div class="three-col" style="margin-top:0.8em;">
+      <div class="box" style="text-align:center;">
+        <h3 style="color:var(--accent);">Public WKD</h3>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.65);">openpgpkey.<br>domain.cc</p>
+        <ul style="font-size:0.8em;">
+          <li>nginx HTTPS</li>
+          <li>CORS enabled</li>
+          <li>No auth required</li>
+          <li>Stateless reads</li>
+        </ul>
+        <p style="font-size:0.7em; margin-top:0.5em; color:var(--accent2);">Internet-facing</p>
+      </div>
+      <div class="box" style="text-align:center;">
+        <h3 style="color:var(--accent);">Internal Portal</h3>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.65);">wks-portal.<br>internal.domain.cc</p>
+        <ul style="font-size:0.8em;">
+          <li>OAuth2-Proxy OIDC</li>
+          <li>Flask / Gunicorn</li>
+          <li>SQLite state</li>
+          <li>10.0.0.0/8 only</li>
+        </ul>
+        <p style="font-size:0.7em; margin-top:0.5em; color:var(--warn);">Internal only</p>
+      </div>
+      <div class="box" style="text-align:center;">
+        <h3 style="color:var(--accent);">Email Backend</h3>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.65);">Postfix +<br>gpg-wks-server</p>
+        <ul style="font-size:0.8em;">
+          <li>SMTP relay</li>
+          <li>Pipe transport</li>
+          <li>Challenge/response</li>
+          <li>Auto key install</li>
+        </ul>
+        <p style="font-size:0.7em; margin-top:0.5em; color:rgba(255,255,255,0.45);">Localhost</p>
+      </div>
+    </div>
+    <aside class="notes">The system separates concerns cleanly across three tiers. The public WKD is fast, CORS-enabled, and requires no authentication — it's just HTTPS file serving. The internal portal is where employees interact to publish keys. The email backend handles the WKS protocol automatically. (~2 min)</aside>
+  </section>
+
+  <section>
+    <h2>Request &amp; Auth Flow</h2>
+    <div class="flow" style="margin:0.8em 0;">
+      <div class="flow-step">Browser<br><small>(internal network)</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">nginx<br><small>IP allowlist<br>10.0.0.0/8</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">oauth2-proxy<br><small>OIDC / ADFS<br>validates token</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">nginx<br><small>sets X-User<br>header</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">Flask<br><small>gunicorn<br>:9010</small></div>
+    </div>
+    <p style="font-size:0.6em; color:rgba(255,255,255,0.5); margin-top:0.3em;">
+      Identity is asserted via <code>X-User</code> from a trusted reverse proxy — Flask never handles credentials
+    </p>
+    <div style="font-size:0.6em; margin-top:0.8em; text-align:left; background:rgba(255,255,255,0.05); border-radius:6px; padding:0.6em 1em;">
+      <span style="color:var(--accent2);">nginx sets:</span>
+      <code>auth_request_set $email $upstream_http_x_auth_request_email;</code><br>
+      <code>proxy_set_header X-User $email;</code>
+    </div>
+    <aside class="notes">Authentication is handled entirely at the proxy layer. oauth2-proxy validates the OIDC token, nginx extracts the verified email claim and passes it as X-User. Flask trusts this header completely — it never sees passwords or tokens. This is a well-established pattern for internal enterprise apps. (~1.5 min)</aside>
+  </section>
+
+  <section>
+    <h2>Email Backend — Postfix Transport</h2>
+    <div class="two-col" style="font-size:0.7em; margin-top:0.5em;">
+      <div>
+        <h3>transport table</h3>
+        <pre><code class="language-text">key-submission@domain.cc  wks:</code></pre>
+        <h3 style="margin-top:0.8em;">master.cf addition</h3>
+        <pre><code class="language-text">wks unix - n n - - pipe
+  flags=Rq user=webkey
+  argv=/usr/local/sbin/wks-receive</code></pre>
+      </div>
+      <div>
+        <h3>wks-receive (11 lines)</h3>
+        <pre><code class="language-bash">#!/bin/sh
+exec /usr/bin/gpg-wks-server -v \
+  --receive \
+  --send \
+  --from key-submission@domain.cc \
+  --header X-WKS-Loop=wks.domain.cc</code></pre>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.5); margin-top:0.5em;">
+          Delegates all WKS protocol logic to GnuPG
+        </p>
+      </div>
+    </div>
+    <aside class="notes">The email path is beautifully minimal. Postfix routes key-submission@ to a pipe transport. The pipe is literally 11 lines of shell — it just calls gpg-wks-server. All protocol complexity is in GnuPG. This is the "delegation over reimplementation" principle. (~1.5 min)</aside>
+  </section>
+</section>
+
+<!-- ─── FLASK APP ──────────────────────────────────────────────────────────── -->
+<section>
+  <section>
+    <h2>The Flask Portal</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div>
+        <h3>Endpoints</h3>
+        <table class="neat">
+          <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+          <tr><td><span class="tag tag-blue">GET</span></td><td><code>/</code></td><td>Redirect → /request</td></tr>
+          <tr><td><span class="tag tag-blue">GET</span> <span class="tag tag-green">POST</span></td><td><code>/request</code></td><td>Upload or select email</td></tr>
+          <tr><td><span class="tag tag-blue">GET</span></td><td><code>/confirm</code></td><td>Publish key</td></tr>
+          <tr><td><span class="tag tag-orange">POST</span></td><td><code>/admin/remove</code></td><td>Remove key (admin)</td></tr>
+        </table>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.5); margin-top:0.6em;">
+          Single-file Flask app (~600 lines)<br>
+          No Jinja templates — inline HTML<br>
+          No ORM — raw parameterised SQLite
+        </p>
+      </div>
+      <div>
+        <h3>Configuration (env vars)</h3>
+        <pre style="font-size:0.85em;"><code class="language-bash">WKS_PORTAL_BASEURL=https://...
+WKS_PORTAL_FROM=noreply@domain.cc
+WKS_PORTAL_DB=/var/lib/wks-portal/...
+WKS_PORTAL_PENDING_DIR=.../pending
+WKS_PORTAL_ALLOWED_DOMAINS=domain.cc
+WKS_PORTAL_TOKEN_TTL_MIN=60
+WKS_PORTAL_REQUIRE_SSO=1</code></pre>
+      </div>
+    </div>
+    <aside class="notes">The Flask app is intentionally minimal. No template engine, no ORM, no web framework extras. It's a single file you can audit in an afternoon. Twelve environment variables cover the full configuration surface. (~1.5 min)</aside>
+  </section>
+
+  <section>
+    <h2>The Confirmation State Machine</h2>
+    <div style="font-size:0.65em;">
+      <div class="flow" style="flex-direction:column; align-items:flex-start; gap:0.4em; padding: 0 2em;">
+        <div class="flow" style="width:100%;">
+          <div class="flow-step" style="flex:1;">1. User uploads <code>.asc</code> key</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step" style="flex:2;">
+            Parse in <strong>isolated GPG homedir</strong><br>
+            Extract fingerprint + email UIDs
+          </div>
+        </div>
+        <div class="flow-arrow" style="align-self:center;">↓</div>
+        <div class="flow" style="width:100%;">
+          <div class="flow-step" style="flex:1;">2. Multiple UIDs?</div>
+          <div class="flow-arrow">→ yes →</div>
+          <div class="flow-step" style="flex:2;">Show selection page, user picks target email</div>
+        </div>
+        <div style="align-self:flex-end; font-size:0.9em; color:rgba(255,255,255,0.4);">→ no → skip to 3</div>
+        <div class="flow-arrow" style="align-self:center;">↓</div>
+        <div class="flow" style="width:100%;">
+          <div class="flow-step" style="flex:1;">3. Issue token</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step" style="flex:2;">
+            UUID stored in SQLite: <code>expires_at</code>, <code>used=0</code>,<br>
+            <code>.asc</code> staged to <code>pending/</code>
+          </div>
+        </div>
+        <div class="flow-arrow" style="align-self:center;">↓</div>
+        <div class="flow" style="width:100%;">
+          <div class="flow-step" style="flex:1;">4. Email sent</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step" style="flex:2;">
+            Confirmation link → <code>/confirm?token=&lt;uuid&gt;</code>
+          </div>
+        </div>
+        <div class="flow-arrow" style="align-self:center;">↓</div>
+        <div class="flow" style="width:100%;">
+          <div class="flow-step" style="flex:1;">5. User clicks</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step" style="flex:2;">
+            Token valid + unused? → <code>gpg-wks-server --install-key</code><br>
+            Mark <code>used=1</code>, key live in WKD tree
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="notes">The confirmation flow is the core of the system. It's a simple state machine — upload, stage, prove ownership via email click, publish. The key insight is that we never trust user input past the initial validation: keys are staged in a restricted directory and only published after the email confirmation proves mailbox ownership. (~2 min)</aside>
+  </section>
+
+  <section>
+    <h2>Secure Key Handling</h2>
+    <pre style="font-size:0.5em;"><code class="language-python">def parse_key(asc_path):
+    tmpdir = tempfile.mkdtemp()          # isolated GPG home
+    try:
+        result = subprocess.run(
+            [GPG, '--homedir', tmpdir,
+             '--import-options', 'show-only',
+             '--import', asc_path],
+            capture_output=True, timeout=10
+        )
+        # extract fingerprint and email UIDs from stdout
+        ...
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)  # always clean up</code></pre>
+    <div class="three-col" style="font-size:0.65em; margin-top:0.6em;">
+      <div class="box">
+        <h3>Isolation</h3>
+        <ul>
+          <li>Fresh homedir per request</li>
+          <li>Key never imported globally</li>
+          <li>Temp dir always removed</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Validation</h3>
+        <ul>
+          <li>Max 512 KB upload</li>
+          <li>Domain whitelist check</li>
+          <li>Dual regex UID extraction</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Publication</h3>
+        <ul>
+          <li>Only via --install-key</li>
+          <li>After email confirmation</li>
+          <li>Single-use token</li>
+        </ul>
+      </div>
+    </div>
+    <aside class="notes">This is the part I'm most proud of. When a user uploads a key, we never import it into any persistent keyring. We spin up a throwaway GPG homedir, parse the key there, and immediately delete the directory — even if an exception occurs. This prevents key contamination and limits blast radius from malicious inputs. (~2 min)</aside>
+  </section>
+</section>
+
+<!-- ─── SECURITY ───────────────────────────────────────────────────────────── -->
+<section>
+  <section>
+    <h2>Security Architecture: Defence in Depth</h2>
+    <table class="neat" style="margin-top:0.5em;">
+      <tr><th>Layer</th><th>Control</th><th>Mitigates</th></tr>
+      <tr>
+        <td>Network</td>
+        <td><code>allow 10.0.0.0/8; deny all;</code></td>
+        <td>Unauthenticated internet access</td>
+      </tr>
+      <tr>
+        <td>Identity</td>
+        <td>OIDC via oauth2-proxy</td>
+        <td>Anonymous submissions</td>
+      </tr>
+      <tr>
+        <td>Email proof</td>
+        <td>Single-use UUID token, 60 min TTL</td>
+        <td>Publishing keys for addresses you don't own</td>
+      </tr>
+      <tr>
+        <td>Key parsing</td>
+        <td>Isolated temp GPG homedir</td>
+        <td>Malicious key / keyring poisoning</td>
+      </tr>
+      <tr>
+        <td>SQL</td>
+        <td>Parameterised queries only</td>
+        <td>SQL injection</td>
+      </tr>
+      <tr>
+        <td>Process</td>
+        <td>Unprivileged <code>webkey</code> user</td>
+        <td>Privilege escalation</td>
+      </tr>
+      <tr>
+        <td>HTTP</td>
+        <td><code>X-Content-Type-Options</code>, <code>Referrer-Policy</code></td>
+        <td>MIME sniffing, referrer leakage</td>
+      </tr>
+    </table>
+    <aside class="notes">The security model is defence in depth — each layer catches a different class of problem. No single control failure compromises the system. I'll highlight the most interesting ones. (~2 min)</aside>
+  </section>
+
+  <section>
+    <h2>Token Design</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div>
+        <h3>Database schema (relevant columns)</h3>
+        <pre style="font-size:0.85em;"><code class="language-sql">CREATE TABLE pending (
+  id         TEXT PRIMARY KEY, -- UUID
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  requested_by TEXT,           -- SSO identity
+  selected_email TEXT,
+  fpr        TEXT NOT NULL,    -- fingerprint
+  asc_path   TEXT NOT NULL,
+  used       INTEGER NOT NULL DEFAULT 0
+);</code></pre>
+      </div>
+      <div>
+        <h3>Confirmation guard</h3>
+        <pre style="font-size:0.85em;"><code class="language-python">row = db.execute(
+  "SELECT * FROM pending
+   WHERE id=? AND used=0
+   AND expires_at > ?",
+  (token, int(time.time()))
+).fetchone()
+if not row:
+    return error("Invalid or expired token")
+# mark used immediately
+db.execute(
+  "UPDATE pending SET used=1 WHERE id=?",
+  (token,))</code></pre>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.5); margin-top:0.4em;">
+          Prevents replay attacks
+        </p>
+      </div>
+    </div>
+    <aside class="notes">The token is a UUID — 128 bits of entropy, impossible to guess. It's marked used before the key is published. The SQL check atomically validates expiry, use status, and token authenticity in a single query. (~1.5 min)</aside>
+  </section>
+
+  <section>
+    <h2>Cleanup Strategy</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div class="box">
+        <h3>Request-time cleanup</h3>
+        <pre style="font-size:0.85em;"><code class="language-python"># At the start of every request:
+db.execute("""
+  DELETE FROM pending
+  WHERE expires_at < ?
+    OR used = 1
+""", (int(time.time()),))</code></pre>
+        <p style="font-size:0.85em; color:rgba(255,255,255,0.5); margin-top:0.4em;">
+          No background worker required
+        </p>
+      </div>
+      <div class="box">
+        <h3>Cron cleanup</h3>
+        <pre style="font-size:0.85em;"><code class="language-text"># Remove expired WKS requests
+25 0 * * * gpg-wks-server --cron
+
+# Remove orphaned .asc files
+17 3 * * * find .../pending \
+  -name '*.asc' \
+  -mtime +2 \
+  -size -1M \
+  -delete</code></pre>
+      </div>
+    </div>
+    <aside class="notes">Cleanup is two-tiered. At the application level, every request triggers a DELETE on expired or used rows — this keeps the database lean without any background job. The cron handles the filesystem side: orphaned .asc files and the WKS server's own state. (~1 min)</aside>
+  </section>
+</section>
+
+<!-- ─── DESIGN DECISIONS ───────────────────────────────────────────────────── -->
+<section>
+  <section>
+    <h2>Pragmatic Engineering Choices</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div>
+        <div class="box" style="margin-bottom:0.5em;">
+          <h3>SQLite over PostgreSQL</h3>
+          <ul>
+            <li>State is ephemeral (TTL 60 min)</li>
+            <li>Low write volume</li>
+            <li>Zero ops overhead</li>
+            <li>Trade-off: single machine</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Delegate to GnuPG</h3>
+          <ul>
+            <li><code>gpg-wks-server --install-key</code></li>
+            <li><code>gpg-wks-server --receive</code></li>
+            <li>Protocol correctness guaranteed</li>
+            <li>We build the UX, not the crypto</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="box" style="margin-bottom:0.5em;">
+          <h3>Python 3.6 compatibility</h3>
+          <ul>
+            <li>No f-strings, no walrus operator</li>
+            <li>Supports long-lived RHEL environments</li>
+            <li>Trade-off: slightly verbose code</li>
+            <li>Explicit <code>from __future__</code> imports</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Inline HTML templates</h3>
+          <ul>
+            <li>Single deployable file</li>
+            <li>No template path issues</li>
+            <li>Fully auditable</li>
+            <li>Trade-off: harder to style</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <aside class="notes">These choices reflect a philosophy: build the simplest thing that works in production. We deliberately chose SQLite because the data is transient. We deliberately chose Python 3.6 compatibility because RHEL 7 environments are still common in enterprises. And we chose to delegate crypto to GnuPG — we're building a UX, not reimplementing OpenPGP. (~2 min)</aside>
+  </section>
+
+  <section>
+    <h2>The Two Submission Paths</h2>
+    <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+      <div class="box">
+        <h3>Web portal path</h3>
+        <div class="flow" style="flex-direction:column; gap:0.3em; align-items:flex-start; font-size:0.9em;">
+          <div class="flow-step" style="width:100%;">Employee logs in (OIDC)</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%;">Uploads .asc via browser</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%;">Clicks email confirmation link</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%; background:rgba(165,214,167,0.15); border-color:var(--accent2);">Key published ✓</div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Direct WKS email path</h3>
+        <div class="flow" style="flex-direction:column; gap:0.3em; align-items:flex-start; font-size:0.9em;">
+          <div class="flow-step" style="width:100%;">MUA sends key to key-submission@</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%;">Postfix → wks-receive pipe</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%;">gpg-wks-server challenge/response</div>
+          <div class="flow-arrow" style="align-self:center;">↓</div>
+          <div class="flow-step" style="width:100%; background:rgba(165,214,167,0.15); border-color:var(--accent2);">Key published ✓</div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:0.6em; color:rgba(255,255,255,0.45); margin-top:0.5em;">Both paths converge on the same WKD tree — one key, two ways to get there</p>
+    <aside class="notes">One nice property of the system is that there are two independent paths to the same published key. Power users and automated tooling can use the direct WKS email protocol. Everyone else gets a nice web UI. The WKD tree is the single source of truth either way. (~1.5 min)</aside>
+  </section>
+</section>
+
+<!-- ─── OPERATIONAL ────────────────────────────────────────────────────────── -->
+<section>
+  <h2>Operational Footprint</h2>
+  <div class="three-col" style="font-size:0.7em; margin-top:0.6em;">
+    <div class="box">
+      <h3>Services</h3>
+      <ul>
+        <li>nginx (WKD + proxy)</li>
+        <li>wks-portal.service<br><small style="color:rgba(255,255,255,0.5);">gunicorn 2 workers</small></li>
+        <li>oauth2-proxy.service</li>
+        <li>postfix</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>File layout</h3>
+      <pre style="font-size:0.8em; color:rgba(255,255,255,0.7);"><code>/opt/wks-portal/      app.py
+/var/lib/gnupg/wks/   WKD tree
+/var/lib/wks-portal/  DB + pending
+/etc/nginx/           vhosts
+/etc/postfix/         relay + transport</code></pre>
+    </div>
+    <div class="box">
+      <h3>Maintenance</h3>
+      <ul>
+        <li>Cron: 2 jobs (webkey)</li>
+        <li>Logs: journalctl -u wks-portal</li>
+        <li>Health: GET /request</li>
+        <li>No external dependencies</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:0.55em; color:rgba(255,255,255,0.4); margin-top:0.6em;">
+    Dependencies: GnuPG 2.2+ · Python 3.6+ · nginx · Postfix · oauth2-proxy binary · OIDC IdP
+  </p>
+  <aside class="notes">The operational overhead is deliberately low. Four standard services, all manageable with systemd. No database server, no message queue, no cache. The entire system state is in files and a single SQLite database. (~1 min)</aside>
+</section>
+
+<!-- ─── LESSONS LEARNED ────────────────────────────────────────────────────── -->
+<section>
+  <h2>Lessons Learned</h2>
+  <div style="font-size:0.72em; margin-top:0.5em;">
+    <div class="box" style="margin-bottom:0.5em;">
+      <h3>Don't reimplement what GnuPG does for you</h3>
+      <p>The WKS protocol has edge cases. Let <code>gpg-wks-server</code> own them. Build the UX wrapper.</p>
+    </div>
+    <div class="box" style="margin-bottom:0.5em;">
+      <h3>Temporary directories are a superpower</h3>
+      <p>Isolated GPG homedirs make untrusted key parsing safe. Always clean up in <code>finally</code>.</p>
+    </div>
+    <div class="box" style="margin-bottom:0.5em;">
+      <h3>Email is your identity proof primitive</h3>
+      <p>The confirmation email isn't just UX friction — it's the ownership proof. Don't skip it.</p>
+    </div>
+    <div class="box">
+      <h3>Match complexity to the problem</h3>
+      <p>SQLite + cron instead of Postgres + Celery. Inline HTML instead of React. Right tool, right scope.</p>
+    </div>
+  </div>
+  <aside class="notes">These are the things I'd tell someone starting a similar project. The biggest win was treating GnuPG as a black box for the protocol and building only the enterprise wrapper. The biggest risk we avoided was overbuilding — this system has been running in production with minimal ops burden. (~2 min)</aside>
+</section>
+
+<!-- ─── WHAT'S NEXT ────────────────────────────────────────────────────────── -->
+<section>
+  <h2>What Could Come Next</h2>
+  <div class="two-col" style="font-size:0.72em; margin-top:0.5em;">
+    <div class="box">
+      <h3>Near-term improvements</h3>
+      <ul>
+        <li>Rate limiting at nginx layer</li>
+        <li>Key expiry notifications</li>
+        <li>Admin dashboard (key inventory)</li>
+        <li>PostgreSQL migration for HA</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h3>Ecosystem integration</h3>
+      <ul>
+        <li>SCIM provisioning hook</li>
+        <li>Auto-revoke on HR offboarding</li>
+        <li>Per-domain policy enforcement</li>
+        <li>Key update / rotation flow</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:0.6em; color:rgba(255,255,255,0.45); margin-top:0.8em;">
+    Code is MIT/AGPL-3.0 — PRs welcome
+  </p>
+  <aside class="notes">The system is functional and production-ready, but there are natural extensions. Rate limiting is the most urgent gap. The HR integration hook would be high value in large organisations — automatically removing published keys when employees leave. (~1 min)</aside>
+</section>
+
+<!-- ─── CLOSING ────────────────────────────────────────────────────────────── -->
+<section data-background-gradient="radial-gradient(circle at 30% 40%, #0d2137 0%, #0a0f1a 70%)">
+  <h2>Summary</h2>
+  <div class="three-col" style="font-size:0.68em; margin:0.8em 0;">
+    <div style="text-align:center;">
+      <div class="big-number">3</div>
+      <div class="subtitle">tiers<br>(WKD · portal · email)</div>
+    </div>
+    <div style="text-align:center;">
+      <div class="big-number">1</div>
+      <div class="subtitle">Python file<br>(~600 lines)</div>
+    </div>
+    <div style="text-align:center;">
+      <div class="big-number">0</div>
+      <div class="subtitle">background workers<br>or external DBs</div>
+    </div>
+  </div>
+  <p style="font-size:0.65em; color:rgba(255,255,255,0.7); max-width:700px; margin:0 auto;">
+    A production-ready, secure OpenPGP key publishing system built on standard tools —
+    nginx, Postfix, GnuPG, Flask — with defence-in-depth security and minimal operational overhead.
+  </p>
+  <hr style="border-color:rgba(79,195,247,0.3); margin:0.8em auto; width:40%;" />
+  <p style="font-size:0.5em; color:rgba(255,255,255,0.4);">Questions?</p>
+  <aside class="notes">To summarise: three tiers, one Python file, zero background workers. We built exactly what was needed — no more, no less. Happy to take questions on the security model, the WKD/WKS standards, or deployment specifics. Thank you.</aside>
+</section>
+
+</div><!-- /slides -->
+</div><!-- /reveal -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/reveal.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/plugin/notes/notes.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.6.1/plugin/highlight/highlight.min.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    transitionSpeed: 'fast',
+    controls: true,
+    progress: true,
+    center: true,
+    width: 1200,
+    height: 700,
+    plugins: [RevealNotes, RevealHighlight],
+    keyboard: {
+      84: function() { Reveal.toggleSpeakerNotes(); } // T = toggle notes
+    }
+  });
+</script>
+</body>
+</html>
