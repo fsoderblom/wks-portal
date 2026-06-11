@@ -102,7 +102,10 @@
   </p>
   <hr style="border-color: rgba(79,195,247,0.3); margin: 1em auto; width: 60%;" />
   <p style="font-size:0.5em; color: rgba(255,255,255,0.45);">
-    WKD · WKS · OAuth2 · GnuPG · Flask · nginx · Postfix
+    WKD · WKS · OAuth2 · GnuPG · Flask · nginx · Postfix<br>
+  </p>
+  <p style="font-size:0.5em; color: rgba(255,255,255,0.45);">
+    https://github.com/fsoderblom/wks-portal
   </p>
   <aside class="notes">Welcome. Today I'll walk you through WKS Portal — a production-grade system we built to solve a real enterprise problem: how do you get your users' OpenPGP public keys published reliably and securely without a manual IT workflow? (~1 min)</aside>
 </section>
@@ -120,7 +123,6 @@
       <div style="font-size:0.6em; display:grid; grid-template-columns:1fr 1fr; gap:0.5em 1.5em;">
         <ul style="margin:0;">
           <li>40+ years in IT</li>
-          <li>1984 — Developer</li>
           <li>1992 — first HP firewall in Northern Europe</li>
           <li>Architect, auditor, advisor across defence, banking, nuclear, healthcare</li>
           <li>Regular lecturer at universities &amp; conferences</li>
@@ -128,7 +130,6 @@
         <ul style="margin:0;">
           <li>ISACA CISA · CISM · CDPSE</li>
           <li>Mikrotik MTCINE · MTCRE · MTCWE</li>
-          <li>Swedish Security Protection Act (6+ yrs)</li>
           <li>NIS / NIS2 · ISO 27001 · COBIT · ITIL</li>
         </ul>
       </div>
@@ -201,7 +202,7 @@
       <div class="box" style="border-color: var(--accent2);">
         <h3 style="color:var(--accent2);">WKD + WKS</h3>
         <ul>
-          <li>DNS-rooted trust</li>
+          <li>Domain-controlled key discovery via HTTPS</li>
           <li>Email ownership proof</li>
           <li>HTTPS delivery</li>
           <li>Self-service portal</li>
@@ -241,7 +242,7 @@
       </div>
     </div>
     <p style="font-size:0.55em; color:rgba(255,255,255,0.45); margin-top:0.8em;">
-      RFC&nbsp;4880 · draft-koch-openpgp-webkey-service · GnuPG gpg-wks-server
+      OpenPGP: RFC&nbsp;9580 · WKD/WKS: draft-koch-openpgp-webkey-service · GnuPG gpg-wks-server
     </p>
     <aside class="notes">WKD is the read side — any email client that understands it can look up a key automatically. WKS is the write side — it's how keys get published, using email as a proof of ownership mechanism. GnuPG ships a reference server implementation. We built the enterprise wrapper around it. (~1.5 min)</aside>
   </section>
@@ -614,9 +615,11 @@ db.execute("""
         <div class="box" style="margin-bottom:0.5em;">
           <h3>Python 3.6 compatibility</h3>
           <ul>
-            <li>No f-strings, no walrus operator</li>
-            <li>Supports long-lived RHEL environments</li>
-            <li>Trade-off: slightly verbose code</li>
+            <li>Legacy RHEL 7 compatibility</li>
+            <li>Customer environment constraint</li>
+            <li>Conservative Python syntax</li>
+            <li>Migration to modern Python 3 planned</li>
+            <li>Trade-off: legacy runtime support, not a long-term target</li>
             <li>Explicit <code>from __future__</code> imports</li>
           </ul>
         </div>
