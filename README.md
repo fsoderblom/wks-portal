@@ -25,7 +25,8 @@ etc/
   systemd/system/wks-portal.service  — systemd unit for the portal (gunicorn)
   systemd/system/oauth2-proxy.service — systemd unit for oauth2-proxy
 opt/
-  wks-portal/app.py                   — Flask application (Python 3.6+, Flask 0.12+)
+  wks-portal/app.py                   — Flask application (Python 3.9+, Flask 2.3+)
+  wks-portal/requirements.txt         — Python dependencies
 usr/
   local/sbin/wks-receive              — shell script: feeds incoming WKS emails to gpg-wks-server
 var/
@@ -72,7 +73,7 @@ Expired and used pending requests are cleaned up on every incoming request. The 
 
 ## Prerequisites
 
-The examples below assume a RHEL-compatible system using `yum`.
+Tested on RHEL 8/9 and Ubuntu 24.04 LTS. For RHEL 7 / Python 3.6 / Flask 0.12 compatibility, see the `v1-rhel7-compat` tag.
 
 ## Installation
 
@@ -84,52 +85,40 @@ useradd -r -m -d /var/lib/gnupg/wks webkey
 
 ### Install required packages
 
+**RHEL / Rocky / AlmaLinux:**
+
 ```bash
-yum install -y \
-  gnupg2 \
-  gnupg2-smime \
-  sqlite \
-  sqlite3 \
-  python3-flask \
-  python3-flask-script \
-  python3-flask-restful \
-  python3-flask-login \
-  python3-flask-healthz \
-  python3-aniso8601 \
-  python3-werkzeug \
-  python3-itsdangerous \
-  python3-gunicorn \
-  python3-click \
-  nginx \
-  nginx-all-modules \
-  nginx-filesystem \
-  nginx-mod-stream \
-  nginx-mod-mail \
-  nginx-mod-http-xslt-filter \
-  nginx-mod-http-perl \
-  nginx-mod-http-image-filter \
-  mpdecimal \
-  libwebp \
-  gd \
-  swaks \
-  mailx \
-  perl-NTLM \
-  perl-GSSAPI \
-  perl-Authen-SASL \
-  perl-Authen-DigestMD5 \
-  perl-Net-DNS \
-  perl-Digest-HMAC
+yum install -y gnupg2 python3 python3-pip nginx
 ```
 
-Note: depending on distribution and repository, the SQLite command-line package may be named either `sqlite`, `sqlite3`, or be provided by another SQLite package. The `sqlite3` command must be available on the system.
+**Ubuntu 24.04:**
+
+```bash
+apt install -y gnupg gpg-wks-server python3 python3-venv nginx
+```
+
+Note: on RHEL, `gpg-wks-server` is included in the `gnupg2` package. On Ubuntu it is a separate `gpg-wks-server` package.
+
+`swaks` is a useful tool for manually smoke-testing SMTP and the WKS email flow but is not required at runtime.
 
 ### Install application files
 
 ```bash
 install -d -o webkey -g webkey -m 750 /opt/wks-portal
 install -o webkey -g webkey -m 640 opt/wks-portal/app.py /opt/wks-portal/app.py
+install -o webkey -g webkey -m 640 opt/wks-portal/requirements.txt /opt/wks-portal/requirements.txt
 
 install -o root -g root -m 755 usr/local/sbin/wks-receive /usr/local/sbin/wks-receive
+```
+
+### Install Python dependencies
+
+Create a virtualenv and install dependencies into it. This avoids conflicts with the system Python on both RHEL and Ubuntu (Ubuntu 24.04 enforces PEP 668 and blocks system-wide `pip install`).
+
+```bash
+python3 -m venv /opt/wks-portal/venv
+/opt/wks-portal/venv/bin/pip install -r /opt/wks-portal/requirements.txt
+chown -R webkey:webkey /opt/wks-portal/venv
 ```
 
 ## SELinux
@@ -326,6 +315,7 @@ Set these in `wks-portal.service` (or equivalent):
 | `WKS_PORTAL_REQUIRE_SSO` | No | Set to `1` to reject requests without the `X-User` header (default: `0`) |
 | `WKS_PORTAL_SMTP_HOST` | No | SMTP relay host (default: `127.0.0.1`) |
 | `WKS_PORTAL_SMTP_PORT` | No | SMTP relay port (default: `25`) |
+| `WKS_PORTAL_ADMIN_USERS` | No | Comma-separated UPNs allowed to call `/admin/remove` (default: unset — rely on nginx restriction) |
 | `GPG` | No | Path to `gpg` binary (default: `/usr/bin/gpg`) |
 | `GPG_WKS_SERVER` | No | Path to `gpg-wks-server` binary (default: `/usr/bin/gpg-wks-server`) |
 
@@ -341,6 +331,7 @@ WKS_PORTAL_ALLOWED_DOMAINS=domain.cc,domain2.cc
 WKS_PORTAL_REQUIRE_SSO=1
 WKS_PORTAL_SMTP_HOST=127.0.0.1
 WKS_PORTAL_SMTP_PORT=25
+WKS_PORTAL_ADMIN_USERS=admin@domain.cc,ops@domain.cc
 ```
 
 ## Application endpoints
@@ -351,7 +342,7 @@ WKS_PORTAL_SMTP_PORT=25
 | `GET` | `/request` | Upload form |
 | `POST` | `/request` | Upload key or select target email |
 | `GET` | `/confirm?token=<id>` | Confirm and publish key (called from email link) |
-| `POST` | `/admin/remove` | Remove a published key (`email=<addr>`); protect with nginx allowlist |
+| `POST` | `/admin/remove` | Remove a published key (`email=<addr>`); restricted by nginx and optionally `WKS_PORTAL_ADMIN_USERS` |
 
 ## Runtime assumptions
 
@@ -367,6 +358,8 @@ The portal assumes:
 ## Security notes
 
 - The internal portal is network-restricted to `10.0.0.0/8` in the example nginx config; adjust to match your internal network
+- `/admin/remove` has an additional nginx `location /admin/` block with a tighter IP allowlist — update `allow` to your actual management host(s) before deploying
+- Set `WKS_PORTAL_ADMIN_USERS` to enforce identity-based access control on `/admin/remove` as a second layer of defense independent of the network restriction
 - Key files are parsed using a temporary, isolated GPG homedir that is cleaned up immediately; keys are never imported into a persistent keyring during the upload phase
 - Confirmation tokens are single-use and time-limited
 - Do not expose the portal directly to untrusted clients; authentication relies on forwarded headers from the reverse proxy

@@ -27,9 +27,11 @@ setgid_group			= postdrop
 #
 # Server
 smtpd_use_tls			= yes
+# RHEL:   /etc/pki/nginx/server.crt
+# Ubuntu: /etc/ssl/certs/server.crt
 smtpd_tls_cert_file		= /etc/pki/nginx/server.crt
 smtpd_tls_key_file		= /etc/pki/nginx/private/server.key
-smtpd_tls_security_level	= 
+smtpd_tls_security_level	=
 smtpd_tls_loglevel		= 1
 smtpd_tls_received_header	= yes
 
@@ -42,8 +44,9 @@ smtp_tls_session_cache_database = btree:/var/lib/postfix/smtp_scache
 smtp_sasl_auth_enable		= yes
 smtp_sasl_security_options	= noanonymous
 smtp_sasl_password_maps		= hash:$config_directory/sasl_passwd
-smtp_tls_CApath			= 
-smtp_tls_CAfile			= /etc/pki/tls/certs/ca-bundle.crt
+# RHEL:   smtp_tls_CApath = /etc/pki/tls/certs
+# Ubuntu: smtp_tls_CApath = /etc/ssl/certs
+smtp_tls_CApath			= /etc/ssl/certs
 smtp_tls_security_level		= encrypt
 
 #
@@ -53,17 +56,8 @@ smtpd_relay_restrictions	= permit_mynetworks,
 				reject_unauth_destination
 
 #
-# dirs & paths
+# dirs & paths — omit distro-specific values and let Postfix use compiled-in defaults.
+# Override here only if your installation differs from the Postfix package defaults.
+#
 queue_directory			= /var/spool/postfix
-command_directory		= /usr/sbin
-daemon_directory		= /usr/libexec/postfix
 data_directory			= /var/lib/postfix
-html_directory			= no
-meta_directory			= /etc/postfix
-manpage_directory		= /usr/share/man
-sample_directory		= /usr/share/doc/postfix/samples
-readme_directory		= /usr/share/doc/postfix/README_FILES
-shlib_directory			= /usr/lib64/postfix
-sendmail_path			= /usr/sbin/sendmail.postfix
-newaliases_path			= /usr/bin/newaliases.postfix
-mailq_path			= /usr/bin/mailq.postfix

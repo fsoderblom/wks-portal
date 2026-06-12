@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #
 # wks-portal - Web Key Service portal
 #
@@ -15,10 +14,7 @@
 # When       Who                What
 # 2026-03-10 fredrik@xpd.se     created.
 
-# wks-portal (legacy-safe)
-# - Python 3.6.8 compatible
-# - Flask 0.12.x compatible (NO @app.get / @app.post)
-# - No new pip deps required (uses stdlib + optional requests if present)
+# Requires Python 3.9+ and Flask 2.3+.
 #
 # Assumptions:
 # - Portal runs as user "webkey"
@@ -36,34 +32,29 @@
 #   WKS_PORTAL_REQUIRE_SSO=1   (optional)
 #   WKS_PORTAL_SMTP_HOST=127.0.0.1
 #   WKS_PORTAL_SMTP_PORT=25
+#   WKS_PORTAL_ADMIN_USERS=admin@domain.cc,ops@domain.cc  (optional; restricts /admin/)
 #
 # Optional headers (from nginx/oauth2-proxy):
 #   X-User: <upn>
 
-from __future__ import print_function
-
+import contextlib
+import json
 import os
 import re
-import json
+import shutil
+import smtplib
+import sqlite3
+import subprocess
+import tempfile
 import time
 import uuid
-import sqlite3
-import tempfile
-import subprocess
-import smtplib
-
-try:
-    from urllib.parse import urlparse
-except ImportError:  # pragma: no cover
-    from urlparse import urlparse  # py2 fallback, not used
-
 from email.mime.text import MIMEText
 from email.utils import formatdate
 
 from flask import Flask, request, render_template_string
 
-APP = Flask(__name__)
-APP.config["MAX_CONTENT_LENGTH"] = 512 * 1024  # 512 KB upload limit
+app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 512 * 1024  # 512 KB upload limit
 
 GPG = os.environ.get("GPG", "/usr/bin/gpg")
 GPG_WKS_SERVER = os.environ.get("GPG_WKS_SERVER", "/usr/bin/gpg-wks-server")
@@ -79,6 +70,7 @@ PENDING_DIR = os.environ.get("WKS_PORTAL_PENDING_DIR", "/var/lib/wks-portal/pend
 
 ALLOWED_DOMAINS = [d.strip().lower() for d in os.environ.get("WKS_PORTAL_ALLOWED_DOMAINS", "").split(",") if d.strip()]
 REQUIRE_SSO = os.environ.get("WKS_PORTAL_REQUIRE_SSO", "0") in ("1", "true", "yes", "on")
+ADMIN_USERS = {u.strip().lower() for u in os.environ.get("WKS_PORTAL_ADMIN_USERS", "").split(",") if u.strip()}
 
 SMTP_HOST = os.environ.get("WKS_PORTAL_SMTP_HOST", "127.0.0.1")
 SMTP_PORT = int(os.environ.get("WKS_PORTAL_SMTP_PORT", "25"))
@@ -86,9 +78,9 @@ SMTP_PORT = int(os.environ.get("WKS_PORTAL_SMTP_PORT", "25"))
 EMAIL_RE = re.compile(r"<([^<>@\s]+@[^<>@\s]+)>")
 EMAIL_RE2 = re.compile(r"\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b", re.IGNORECASE)
 
-# --- HTML templates (single-file, legacy Flask) --------------------------------
+# --- HTML templates ------------------------------------------------------------
 
-PAGE_REQUEST = u"""<!doctype html>
+PAGE_REQUEST = """<!doctype html>
 <html>
 <head><meta charset="utf-8"><title>WKD Publish Portal</title></head>
 <body>
@@ -130,7 +122,7 @@ PAGE_REQUEST = u"""<!doctype html>
 </html>
 """
 
-PAGE_CONFIRM = u"""<!doctype html>
+PAGE_CONFIRM = """<!doctype html>
 <html>
 <head><meta charset="utf-8"><title>Confirmation</title></head>
 <body>
@@ -152,33 +144,34 @@ PAGE_CONFIRM = u"""<!doctype html>
 # --- helpers -------------------------------------------------------------------
 
 def ensure_dirs():
-    if not os.path.isdir(PENDING_DIR):
-        os.makedirs(PENDING_DIR, 0o750)
+    os.makedirs(PENDING_DIR, mode=0o750, exist_ok=True)
 
-def db():
+@contextlib.contextmanager
+def get_db():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 def init_db():
     ensure_dirs()
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS pending (
-          id TEXT PRIMARY KEY,
-          created_at INTEGER NOT NULL,
-          expires_at INTEGER NOT NULL,
-          requested_by TEXT,
-          selected_email TEXT,
-          fpr TEXT NOT NULL,
-          emails_json TEXT NOT NULL,
-          asc_path TEXT NOT NULL,
-          used INTEGER NOT NULL DEFAULT 0
-        )
-    """)
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending (
+              id TEXT PRIMARY KEY,
+              created_at INTEGER NOT NULL,
+              expires_at INTEGER NOT NULL,
+              requested_by TEXT,
+              selected_email TEXT,
+              fpr TEXT NOT NULL,
+              emails_json TEXT NOT NULL,
+              asc_path TEXT NOT NULL,
+              used INTEGER NOT NULL DEFAULT 0
+            )
+        """)
 
 def now_ts():
     return int(time.time())
@@ -194,6 +187,14 @@ def enforce_sso_if_needed():
         return "SSO required (missing X-User header)."
     return None
 
+def enforce_admin():
+    if not ADMIN_USERS:
+        return None  # not configured; rely solely on nginx restriction
+    who = get_requested_by().lower()
+    if not who or who not in ADMIN_USERS:
+        return ("forbidden", 403)
+    return None
+
 def allowed_email(addr):
     addr = (addr or "").strip().lower()
     if not addr or "@" not in addr:
@@ -204,24 +205,24 @@ def allowed_email(addr):
     return True
 
 def run_cmd(cmd, input_bytes=None, timeout=20):
-    # Python 3.6-safe subprocess with timeout
-    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        out, err = p.communicate(input=input_bytes, timeout=timeout)
+        result = subprocess.run(
+            cmd,
+            input=input_bytes,
+            capture_output=True,
+            timeout=timeout,
+        )
+        out = result.stdout.decode("utf-8", "replace")
+        err = result.stderr.decode("utf-8", "replace")
+        return result.returncode, out, err
     except subprocess.TimeoutExpired:
-        try:
-            p.kill()
-        except Exception:
-            pass
         return 124, "", "timeout"
-    out_s = out.decode("utf-8", "replace") if out else ""
-    err_s = err.decode("utf-8", "replace") if err else ""
-    return p.returncode, out_s, err_s
 
 def parse_uids_and_fpr(asc_bytes):
     """
-    Extract emails from UID lines and primary fingerprint without importing into persistent homedir.
-    Uses gpg --import-options show-only, but gpg still wants a writable homedir -> tempdir.
+    Extract emails from UID lines and primary fingerprint without importing
+    into a persistent homedir. Uses a temporary GPG homedir that is discarded
+    immediately after inspection.
     """
     td = tempfile.mkdtemp(prefix="wks-portal-gnupg-")
     try:
@@ -230,7 +231,7 @@ def parse_uids_and_fpr(asc_bytes):
             "--homedir", td,
             "--with-colons",
             "--import-options", "show-only",
-            "--import", "-"
+            "--import", "-",
         ]
         rc, out, err = run_cmd(cmd, input_bytes=asc_bytes, timeout=15)
         if rc != 0:
@@ -257,13 +258,8 @@ def parse_uids_and_fpr(asc_bytes):
                         if m2:
                             emails.append(m2.group(1).strip().lower())
 
-        # unique preserving order
-        seen = set()
-        uniq = []
-        for e in emails:
-            if e not in seen:
-                uniq.append(e)
-                seen.add(e)
+        seen: set[str] = set()
+        uniq = [e for e in emails if not (e in seen or seen.add(e))]  # type: ignore[func-returns-value]
 
         if not fpr:
             raise ValueError("Could not extract fingerprint from key.")
@@ -272,22 +268,7 @@ def parse_uids_and_fpr(asc_bytes):
 
         return uniq, fpr
     finally:
-        # best-effort cleanup
-        try:
-            for root, dirs, files in os.walk(td, topdown=False):
-                for fn in files:
-                    try:
-                        os.unlink(os.path.join(root, fn))
-                    except Exception:
-                        pass
-                for dn in dirs:
-                    try:
-                        os.rmdir(os.path.join(root, dn))
-                    except Exception:
-                        pass
-            os.rmdir(td)
-        except Exception:
-            pass
+        shutil.rmtree(td, ignore_errors=True)
 
 def store_pending(asc_bytes, emails, fpr, requested_by):
     pid = uuid.uuid4().hex
@@ -296,37 +277,31 @@ def store_pending(asc_bytes, emails, fpr, requested_by):
         f.write(asc_bytes)
     try:
         os.chmod(asc_path, 0o640)
-    except Exception:
+    except OSError:
         pass
 
     ts = now_ts()
     exp = ts + TOKEN_TTL_SEC
 
-    conn = db()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO pending (id, created_at, expires_at, requested_by, selected_email, fpr, emails_json, asc_path, used) "
-        "VALUES (?,?,?,?,?,?,?,?,0)",
-        (pid, ts, exp, requested_by, None, fpr, json.dumps(emails), asc_path)
-    )
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO pending (id, created_at, expires_at, requested_by, selected_email, fpr, emails_json, asc_path, used) "
+            "VALUES (?,?,?,?,?,?,?,?,0)",
+            (pid, ts, exp, requested_by, None, fpr, json.dumps(emails), asc_path),
+        )
     return pid
 
 def load_pending(pid):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM pending WHERE id=?", (pid,))
-    row = cur.fetchone()
-    conn.close()
-    return row
+    with get_db() as conn:
+        return conn.execute("SELECT * FROM pending WHERE id=?", (pid,)).fetchone()
 
 def mark_used(pid, selected_email):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE pending SET used=1, selected_email=? WHERE id=?", (selected_email, pid))
-    conn.commit()
-    conn.close()
+    with get_db() as conn:
+        conn.execute("UPDATE pending SET used=1, selected_email=? WHERE id=?", (selected_email, pid))
+
+def set_selected_email(pid, email_addr):
+    with get_db() as conn:
+        conn.execute("UPDATE pending SET selected_email=? WHERE id=?", (email_addr, pid))
 
 def send_mail(to_addr, subject, body):
     msg = MIMEText(body, _charset="utf-8")
@@ -335,14 +310,8 @@ def send_mail(to_addr, subject, body):
     msg["Subject"] = subject
     msg["Date"] = formatdate(localtime=True)
 
-    s = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10)
-    try:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as s:
         s.sendmail(MAIL_FROM, [to_addr], msg.as_string())
-    finally:
-        try:
-            s.quit()
-        except Exception:
-            pass
 
 def send_confirmation_email(to_addr, token, fpr, requested_by):
     confirm_url = BASEURL + "/confirm?token=" + token
@@ -363,7 +332,6 @@ def send_confirmation_email(to_addr, token, fpr, requested_by):
     send_mail(to_addr, subject, body)
 
 def wks_install_key(key_path, email_addr):
-    # -C points to top directory (webkey home). Keep it explicit.
     cmd = [GPG_WKS_SERVER, "-C", "/var/lib/gnupg/wks", "--install-key", key_path, email_addr]
     rc, out, err = run_cmd(cmd, timeout=30)
     return rc, (out + "\n" + err).strip()
@@ -373,25 +341,46 @@ def wks_remove_key(email_addr):
     rc, out, err = run_cmd(cmd, timeout=30)
     return rc, (out + "\n" + err).strip()
 
+def cleanup_expired():
+    ts = now_ts()
+    with get_db() as conn:
+        conn.execute("DELETE FROM pending WHERE expires_at < ?", (ts,))
+        conn.execute("DELETE FROM pending WHERE used = 1 AND created_at < ?", (ts - 86400,))
+
+def cleanup_orphaned_files():
+    cutoff = now_ts() - 86400
+    try:
+        with get_db() as conn:
+            rows = conn.execute("SELECT asc_path FROM pending").fetchall()
+        names_in_db = {os.path.abspath(r[0]) for r in rows if r[0]}
+
+        for fn in os.listdir(PENDING_DIR):
+            path = os.path.abspath(os.path.join(PENDING_DIR, fn))
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if os.path.isfile(path) and path not in names_in_db and int(st.st_mtime) < cutoff:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
 # --- routes --------------------------------------------------------------------
 
-@APP.before_first_request
-def _init_once():
-    init_db()
-
-@APP.before_request
+@app.before_request
 def _housekeeping():
-    cleanup_pending_db()
-    cleanup_pending_files()
+    cleanup_expired()
+    cleanup_orphaned_files()
 
-@APP.route("/", methods=["GET"])
+@app.get("/")
 def index():
-    # redirect to /request without external redirect to keep it simple
     return request_publish()
 
-@APP.route("/request", methods=["GET", "POST"])
+@app.route("/request", methods=["GET", "POST"])
 def request_publish():
-    # Optional SSO gate
     sso_err = enforce_sso_if_needed()
     if sso_err:
         return render_template_string(PAGE_REQUEST, emails=None, pending_id=None, err=sso_err, msg=None), 403
@@ -424,9 +413,7 @@ def request_publish():
         if not allowed_email(sel_email):
             return render_template_string(PAGE_REQUEST, emails=None, pending_id=None, err="Email domain is not allowed.", msg=None, who=requested_by), 400
 
-        # Send confirmation mail
         try:
-            # bind token -> target email
             set_selected_email(pending_id, sel_email)
             send_confirmation_email(sel_email, pending_id, row["fpr"], requested_by)
         except Exception as e:
@@ -448,23 +435,19 @@ def request_publish():
     except Exception as e:
         return render_template_string(PAGE_REQUEST, emails=None, pending_id=None, err=str(e), msg=None, who=requested_by), 400
 
-    # Filter to allowed domains (if configured)
-    if ALLOWED_DOMAINS:
-        emails_f = [e for e in emails if allowed_email(e)]
-    else:
-        emails_f = emails
+    emails_f = [e for e in emails if allowed_email(e)] if ALLOWED_DOMAINS else emails
 
     if not emails_f:
         return render_template_string(
             PAGE_REQUEST, emails=None, pending_id=None,
             err="No UID emails matched allowed domains: %s" % ", ".join(ALLOWED_DOMAINS),
             msg=None,
-            who=requested_by
+            who=requested_by,
         ), 400
 
     pid = store_pending(asc_bytes, emails_f, fpr, requested_by)
 
-    # If only one possible address: send immediately, skip step2 UI
+    # Single address: skip the chooser and send immediately
     if len(emails_f) == 1:
         sel = emails_f[0]
         try:
@@ -474,10 +457,9 @@ def request_publish():
             return render_template_string(PAGE_REQUEST, emails=None, pending_id=None, err="Failed to send confirmation email: %s" % (str(e),), msg=None, who=requested_by), 500
         return render_template_string(PAGE_REQUEST, emails=None, pending_id=None, err=None, msg="Confirmation email sent to %s." % sel, who=requested_by)
 
-    # Otherwise show chooser (step2)
     return render_template_string(PAGE_REQUEST, emails=emails_f, pending_id=pid, err=None, msg=None, who=requested_by)
 
-@APP.route("/confirm", methods=["GET"])
+@app.get("/confirm")
 def confirm_publish():
     token = (request.args.get("token") or "").strip()
     if not token:
@@ -491,18 +473,8 @@ def confirm_publish():
     if now_ts() > int(row["expires_at"]):
         return render_template_string(PAGE_CONFIRM, ok=False, err="This token has expired."), 400
 
-    # Determine which email to publish for:
-    # - In this model, the token corresponds to the request, and the target email was the recipient.
-    # - We don't store target email in DB at send-time to keep it simple; infer from the recipient clicking it
-    #   is not possible in HTTP. So we require that the request sent confirmation already selected one email.
-    #
-    # To make this deterministic: we store selected_email when mail is sent.
-    #
-    # Backward compat: if selected_email is NULL, we cannot know which was targeted -> fail.
     selected_email = row["selected_email"]
     if not selected_email:
-        # If you want, you can store selected_email at send-time in request_publish() before sending.
-        # For now, fail safe.
         return render_template_string(PAGE_CONFIRM, ok=False, err="Token has no bound target email (server-side state missing)."), 500
 
     asc_path = row["asc_path"]
@@ -518,10 +490,11 @@ def confirm_publish():
     mark_used(token, selected_email)
     return render_template_string(PAGE_CONFIRM, ok=True, email=selected_email, fpr=fpr), 200
 
-# Optional admin endpoint (legacy-safe)
-@APP.route("/admin/remove", methods=["POST"])
+@app.post("/admin/remove")
 def admin_remove():
-    # Very minimal; protect with nginx allowlist or oauth2-proxy group policy.
+    denied = enforce_admin()
+    if denied:
+        return denied
     email_addr = (request.form.get("email") or "").strip().lower()
     if not allowed_email(email_addr):
         return "invalid email", 400
@@ -530,64 +503,11 @@ def admin_remove():
         return out, 500
     return out or "ok", 200
 
-
-def set_selected_email(pid, email_addr):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("UPDATE pending SET selected_email=? WHERE id=?", (email_addr, pid))
-    conn.commit()
-    conn.close()
-
-
-def cleanup_pending_db():
-    ts = now_ts()
-    conn = db()
-    cur = conn.cursor()
-
-    # ta bort utgångna eller redan använda requests äldre än 24h
-    cur.execute("DELETE FROM pending WHERE expires_at < ?", (ts,))
-    cur.execute("DELETE FROM pending WHERE used = 1 AND created_at < ?", (ts - 86400,))
-
-    conn.commit()
-    conn.close()
-
-
-def cleanup_pending_files():
-    # ta bort orphaned .asc-filer äldre än 24h
-    cutoff = now_ts() - 86400
-
-    try:
-        names_in_db = set()
-        conn = db()
-        cur = conn.cursor()
-        cur.execute("SELECT asc_path FROM pending")
-        for row in cur.fetchall():
-            if row[0]:
-                names_in_db.add(os.path.abspath(row[0]))
-        conn.close()
-
-        for fn in os.listdir(PENDING_DIR):
-            path = os.path.abspath(os.path.join(PENDING_DIR, fn))
-            try:
-                st = os.stat(path)
-            except OSError:
-                continue
-
-            if not os.path.isfile(path):
-                continue
-
-            if path not in names_in_db and int(st.st_mtime) < cutoff:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-    except Exception:
-        pass
-
-
 # --- main ----------------------------------------------------------------------
 
-if __name__ == "__main__":
+with app.app_context():
     init_db()
+
+if __name__ == "__main__":
     # Dev only. In prod use gunicorn.
-    APP.run(host="127.0.0.1", port=9010, debug=False)
+    app.run(host="127.0.0.1", port=9010, debug=False)
