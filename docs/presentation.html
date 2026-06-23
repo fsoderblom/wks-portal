@@ -370,10 +370,11 @@ WKS_PORTAL_DB=/var/lib/wks-portal/...
 WKS_PORTAL_PENDING_DIR=.../pending
 WKS_PORTAL_ALLOWED_DOMAINS=domain.cc
 WKS_PORTAL_TOKEN_TTL_MIN=60
-WKS_PORTAL_REQUIRE_SSO=1</code></pre>
+WKS_PORTAL_REQUIRE_SSO=1
+WKS_PORTAL_ADMIN_USERS=admin@domain.cc</code></pre>
       </div>
     </div>
-    <aside class="notes">The Flask app is intentionally minimal. No template engine, no ORM, no web framework extras. It's a single file you can audit in an afternoon. Twelve environment variables cover the full configuration surface. (~1.5 min)</aside>
+    <aside class="notes">The Flask app is intentionally minimal. No template engine, no ORM, no web framework extras. It's a single file — around 500 lines — you can audit in an afternoon. The configuration surface is covered by a handful of environment variables. (~1.5 min)</aside>
   </section>
 
   <section>
@@ -504,8 +505,18 @@ WKS_PORTAL_REQUIRE_SSO=1</code></pre>
       </tr>
       <tr>
         <td>Process</td>
-        <td>Unprivileged <code>webkey</code> user</td>
-        <td>Privilege escalation</td>
+        <td>Unprivileged <code>webkey</code> + systemd <code>NoNewPrivileges</code>, <code>PrivateTmp</code>, <code>ProtectSystem=strict</code></td>
+        <td>Privilege escalation, filesystem exposure</td>
+      </tr>
+      <tr>
+        <td>TLS</td>
+        <td>Mozilla Intermediate cipher suite, TLS 1.2+1.3 only</td>
+        <td>Weak cipher negotiation</td>
+      </tr>
+      <tr>
+        <td>/admin/</td>
+        <td>nginx IP allowlist + <code>WKS_PORTAL_ADMIN_USERS</code> identity check</td>
+        <td>Unauthorised key deletion</td>
       </tr>
       <tr>
         <td>HTTP</td>
@@ -613,14 +624,12 @@ db.execute("""
       </div>
       <div>
         <div class="box" style="margin-bottom:0.5em;">
-          <h3>Python 3.6 compatibility</h3>
+          <h3>Python 3.9+ / Flask 2.3+</h3>
           <ul>
-            <li>Legacy RHEL 7 compatibility</li>
-            <li>Customer environment constraint</li>
-            <li>Conservative Python syntax</li>
-            <li>Migration to modern Python 3 planned</li>
-            <li>Trade-off: legacy runtime support, not a long-term target</li>
-            <li>Explicit <code>from __future__</code> imports</li>
+            <li>Requires Python 3.9+ and Flask 2.3+</li>
+            <li>Aimed for RHEL 8/9 and Ubuntu 24.04 LTS</li>
+            <li>venv-based install (<code>requirements.txt</code>)</li>
+            <li>RHEL 7 / Python 3.6 preserved on git tag <code>v1-rhel7-compat</code></li>
           </ul>
         </div>
         <div class="box">
@@ -634,7 +643,7 @@ db.execute("""
         </div>
       </div>
     </div>
-    <aside class="notes">These choices reflect a philosophy: build the simplest thing that works in production. We deliberately chose SQLite because the data is transient. We deliberately chose Python 3.6 compatibility because RHEL 7 environments are still common in enterprises. And we chose to delegate crypto to GnuPG — we're building a UX, not reimplementing OpenPGP. (~2 min)</aside>
+    <aside class="notes">These choices reflect a philosophy: build the simplest thing that works in production. We deliberately chose SQLite because the data is transient. We modernised to Python 3.9+ and Flask 2.3+ — the legacy RHEL 7 / Python 3.6 baseline is preserved on a git tag for anyone who still needs it. And we chose to delegate crypto to GnuPG — we're building a UX, not reimplementing OpenPGP. (~2 min)</aside>
   </section>
 
   <section>
@@ -685,7 +694,7 @@ db.execute("""
     </div>
     <div class="box">
       <h3>File layout</h3>
-      <pre style="font-size:0.8em; color:rgba(255,255,255,0.7);"><code>/opt/wks-portal/      app.py
+      <pre style="font-size:0.8em; color:rgba(255,255,255,0.7);"><code>/opt/wks-portal/      app.py + venv/
 /var/lib/gnupg/wks/   WKD tree
 /var/lib/wks-portal/  DB + pending
 /etc/nginx/           vhosts
@@ -702,7 +711,8 @@ db.execute("""
     </div>
   </div>
   <p style="font-size:0.55em; color:rgba(255,255,255,0.4); margin-top:0.6em;">
-    Dependencies: GnuPG 2.2+ · Python 3.6+ · nginx · Postfix · oauth2-proxy binary · OIDC IdP
+    Dependencies: GnuPG 2.2+ · Python 3.9+ · nginx · Postfix · oauth2-proxy binary · OIDC IdP<br>
+    Tested on: RHEL 8/9 · Ubuntu 24.04 LTS
   </p>
   <aside class="notes">The operational overhead is deliberately low. Four standard services, all manageable with systemd. No database server, no message queue, no cache. The entire system state is in files and a single SQLite database. (~1 min)</aside>
 </section>
@@ -770,7 +780,7 @@ db.execute("""
     </div>
     <div style="text-align:center;">
       <div class="big-number">1</div>
-      <div class="subtitle">Python file<br>(~600 lines)</div>
+      <div class="subtitle">Python file<br>(~500 lines)</div>
     </div>
     <div style="text-align:center;">
       <div class="big-number">0</div>
